@@ -149,7 +149,7 @@ const PatternGrid = ({
           continue;
         }
         if (cell.stitchId !== "none") {
-          activeCount++;
+          activeCount += Math.max(1, getStitchSpan(cell.stitchId));
         }
         netChange += getStitchNetChange(cell.stitchId);
         const span = getStitchSpan(cell.stitchId);
@@ -160,11 +160,9 @@ const PatternGrid = ({
 
     if (stats.length > 0) {
       const lastIdx = stats.length - 1;
-      stats[lastIdx].expectedCount = stats[lastIdx].activeCount;
+      stats[lastIdx].expectedCount = stats[lastIdx].activeCount + stats[lastIdx].netChange;
       for (let i = lastIdx - 1; i >= 0; i--) {
-        const prevExpected = stats[i + 1].expectedCount;
-        const prevNet = stats[i + 1].netChange;
-        stats[i].expectedCount = prevExpected + prevNet;
+        stats[i].expectedCount = stats[i + 1].expectedCount + stats[i].netChange;
         stats[i].mismatch = stats[i].activeCount !== stats[i].expectedCount;
       }
     }
