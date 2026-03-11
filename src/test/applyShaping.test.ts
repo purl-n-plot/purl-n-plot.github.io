@@ -24,9 +24,6 @@ function placeStitch(grid: CellData[][], row: number, col: number, stitchId: str
   return true;
 }
 
-/**
- * Mirrors the applyShaping logic from Index.tsx for testing.
- */
 function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: number } {
   const numRows = grid.length;
   if (numRows === 0) return { result: grid, totalCols: 0 };
@@ -36,6 +33,9 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
     const oldColToActive = new Map<number, number>();
     let netChange = 0;
     let colIdx = 0;
+    let leftShaping = 0;
+    let rightShaping = 0;
+    const mid = row.length / 2;
 
     while (colIdx < row.length) {
       const cell = row[colIdx];
@@ -44,7 +44,13 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
         continue;
       }
       const span = Math.max(1, getStitchSpan(cell.stitchId));
-      netChange += getStitchNetChange(cell.stitchId);
+      const nc = getStitchNetChange(cell.stitchId);
+      netChange += nc;
+
+      if (nc !== 0) {
+        if (colIdx < mid) leftShaping += Math.abs(nc);
+        else rightShaping += Math.abs(nc);
+      }
 
       if (cell.stitchId !== "none") {
         for (let s = 0; s < span && colIdx + s < row.length; s++) {
@@ -54,11 +60,16 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
       }
       colIdx += span;
     }
-    return { activeCells, oldColToActive, netChange, cellCount: activeCells.length };
+
+    const totalShaping = leftShaping + rightShaping;
+    const shapingBias = totalShaping === 0 ? 0 : (rightShaping - leftShaping) / totalShaping;
+
+    return { activeCells, oldColToActive, netChange, cellCount: activeCells.length, shapingBias };
   });
 
+  // Bottom row is baseline
   const expectedCounts = new Array(numRows);
-  expectedCounts[numRows - 1] = rowInfo[numRows - 1].cellCount + rowInfo[numRows - 1].netChange;
+  expectedCounts[numRows - 1] = rowInfo[numRows - 1].cellCount;
   let maxWidth = expectedCounts[numRows - 1];
 
   for (let i = numRows - 2; i >= 0; i--) {
@@ -66,22 +77,44 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
     maxWidth = Math.max(maxWidth, expectedCounts[i]);
   }
 
+  // Idempotency check
+  let alreadyApplied = true;
+  for (let i = 0; i < numRows; i++) {
+    if (rowInfo[i].cellCount !== expectedCounts[i]) {
+      alreadyApplied = false;
+      break;
+    }
+  }
+  if (alreadyApplied) {
+    return { result: grid, totalCols: grid[0]?.length ?? 0 };
+  }
+
   const currentCols = grid[0]?.length ?? 0;
   const totalCols = Math.max(currentCols, maxWidth);
   const noStitch = (): CellData => ({ color: DEFAULT_BG, stitchId: "none" });
 
+  // Cumulative bias
+  const biases = new Array(numRows).fill(0);
+  let lastBias = 0;
+  for (let i = numRows - 1; i >= 0; i--) {
+    if (rowInfo[i].netChange !== 0) {
+      lastBias = rowInfo[i].shapingBias;
+    }
+    biases[i] = lastBias;
+  }
+
   const result = grid.map((_, rowIdx) => {
     const { activeCells, oldColToActive } = rowInfo[rowIdx];
     const expected = expectedCounts[rowIdx];
+    const bias = biases[rowIdx];
 
-    // Trim excess from edges if too many active cells
     let usedCells = activeCells;
     let usedOldColToActive = oldColToActive;
     if (activeCells.length > expected) {
       const excess = activeCells.length - expected;
-      const trimLeft = Math.floor(excess / 2);
-      const trimRight = excess - trimLeft;
-      usedCells = activeCells.slice(trimLeft, activeCells.length - trimRight);
+      const trimRight = Math.round(excess * ((1 + bias) / 2));
+      const trimLeft = excess - trimRight;
+      usedCells = activeCells.slice(trimLeft, activeCells.length - trimRight || undefined);
       usedOldColToActive = new Map<number, number>();
       for (const [oldCol, activeIdx] of oldColToActive.entries()) {
         const newIdx = activeIdx - trimLeft;
@@ -92,7 +125,7 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
     }
 
     const fillerCount = Math.max(0, expected - usedCells.length);
-    const fillerLeft = Math.floor(fillerCount / 2);
+    const fillerLeft = Math.round(fillerCount * ((1 - bias) / 2));
     const fillerRight = fillerCount - fillerLeft;
 
     const contentCells: CellData[] = [];
@@ -111,7 +144,7 @@ function applyShaping(grid: CellData[][]): { result: CellData[][]; totalCols: nu
     for (let i = 0; i < fillerRight; i++) contentCells.push({ color: DEFAULT_BG, stitchId: "knit" });
 
     const noStitchPadding = totalCols - contentCells.length;
-    const padLeft = Math.floor(Math.max(0, noStitchPadding) / 2);
+    const padLeft = Math.round(Math.max(0, noStitchPadding) * ((1 - bias) / 2));
     const padRight = Math.max(0, noStitchPadding) - padLeft;
 
     const newRow: CellData[] = [];
@@ -142,96 +175,84 @@ describe("Apply Shaping", () => {
     const grid = createGrid(3, 6);
     const { result } = applyShaping(grid);
     expect(result.length).toBe(3);
-    // All rows should still have 6 knit stitches, no none cells
     for (const row of result) {
       expect(row.length).toBe(6);
       expect(row.every((c) => c.stitchId === "knit")).toBe(true);
     }
   });
 
-  it("adds no-stitch padding for decrease rows", () => {
-    // 3 rows of 6 cols. Bottom row has a k2tog (decrease -1)
+  it("bottom row is baseline and not trimmed", () => {
     const grid = createGrid(3, 6);
-    placeStitch(grid, 2, 0, "k2tog", "#FFF"); // bottom row, net -1
-
+    placeStitch(grid, 2, 0, "k2tog", "#FFF"); // bottom row only, net -1
+    // Bottom is baseline — nothing changes since only bottom has shaping
     const { result } = applyShaping(grid);
-    // Bottom row: 6 active, net -1 → output 5, so bottom row itself shows 5 active
-    for (const row of result) {
-      expect(row.length).toBe(6);
-    }
-    // Bottom row should have 5 active (trimmed to output count)
-    const bottomActive = countActive(result[2]);
-    expect(bottomActive).toBe(5);
-    // Row 1 should have 5 active
-    const row1Active = countActive(result[1]);
-    expect(row1Active).toBe(5);
-    // Row 0 should also have 5 active
-    const row0Active = countActive(result[0]);
-    expect(row0Active).toBe(5);
-    // Bottom row should still have k2tog
-    const bottomStitches = result[2].filter((c) => c.stitchId !== "none");
-    expect(bottomStitches.some((c) => c.stitchId === "k2tog")).toBe(true);
+    expect(countActive(result[2])).toBe(6);
+    expect(countActive(result[1])).toBe(6);
+    expect(countActive(result[0])).toBe(6);
   });
 
-  it("expands grid and fills knit for increase rows", () => {
-    // 3 rows of 4 cols. Bottom row has a YO (increase +1)
-    const grid = createGrid(3, 4);
-    placeStitch(grid, 2, 1, "yo", "#FFF"); // net +1
+  it("narrows rows above when non-bottom row has decrease", () => {
+    const grid = createGrid(3, 6);
+    placeStitch(grid, 1, 0, "k2tog", "#FFF"); // middle row, net -1
+    const { result } = applyShaping(grid);
+    expect(countActive(result[2])).toBe(6); // baseline
+    expect(countActive(result[1])).toBe(5); // 6 + (-1) = 5
+    expect(countActive(result[0])).toBe(5); // 5 + 0 = 5
+  });
 
+  it("expands grid for increase on non-bottom row", () => {
+    const grid = createGrid(3, 4);
+    placeStitch(grid, 1, 1, "yo", "#FFF"); // middle row net +1
     const { result, totalCols } = applyShaping(grid);
-    // Bottom row: 4 active, net +1 → row 1 expects 5 active
-    // Row 1 had 4 active → needs 1 filler knit
     expect(totalCols).toBeGreaterThanOrEqual(5);
-    const row1Active = countActive(result[1]);
-    expect(row1Active).toBe(5);
+    expect(countActive(result[1])).toBe(5); // 4 + 1 = 5
+    expect(countActive(result[0])).toBe(5);
   });
 
   it("preserves stitches after shaping", () => {
     const grid = createGrid(2, 6);
     placeStitch(grid, 0, 2, "purl", "#FF0000");
     placeStitch(grid, 1, 0, "yo", "#FFF");
-
     const { result } = applyShaping(grid);
-    // The purl stitch should still exist in the top row
     const hasPurl = result[0].some((c) => c.stitchId === "purl" && c.color === "#FF0000");
     expect(hasPurl).toBe(true);
   });
 
   it("handles mixed increases and decreases", () => {
-    // 3 rows, 6 cols
-    // Bottom row: has YO (+1) → output 7, bottom shows 7 active
-    // Middle row: expected = 7 + (-1) = 6 active
-    // Top row: expected = 6 + 0 = 6 active
     const grid = createGrid(3, 6);
-    placeStitch(grid, 2, 0, "yo", "#FFF");   // bottom: net +1
-    placeStitch(grid, 1, 0, "k2tog", "#FFF"); // middle: net -1
-
-    const { result, totalCols } = applyShaping(grid);
-    expect(totalCols).toBeGreaterThanOrEqual(7);
-
-    // Bottom row shows 7 active (6 original + 1 filler)
-    const bottomActive = countActive(result[2]);
-    expect(bottomActive).toBe(7);
-
-    // Middle row should have 6 active
-    const midActive = countActive(result[1]);
-    expect(midActive).toBe(6);
-
-    // Top row should have 6 active
-    const topActive = countActive(result[0]);
-    expect(topActive).toBe(6);
+    placeStitch(grid, 1, 0, "yo", "#FFF");   // middle: net +1
+    placeStitch(grid, 0, 0, "k2tog", "#FFF"); // top: net -1
+    const { result } = applyShaping(grid);
+    expect(countActive(result[2])).toBe(6); // baseline
+    expect(countActive(result[1])).toBe(7); // 6 + 1 = 7
+    expect(countActive(result[0])).toBe(6); // 7 + (-1) = 6
   });
 
   it("no-stitch cells from previous shaping are stripped", () => {
     const grid = createGrid(2, 6);
-    // Manually place no-stitch cells (simulating prior shaping)
     grid[0][0] = { color: DEFAULT_BG, stitchId: "none" };
     grid[0][5] = { color: DEFAULT_BG, stitchId: "none" };
-
     const { result } = applyShaping(grid);
-    // The none cells should be treated as padding, active count based on non-none
     const topActive = countActive(result[0]);
-    // Row 0 had 4 active originally, row 1 has 6 active with net 0 → expects 6
     expect(topActive).toBe(6);
+  });
+
+  it("is idempotent — re-applying produces same result", () => {
+    const grid = createGrid(3, 6);
+    placeStitch(grid, 1, 0, "yo", "#FFF"); // middle row increase
+    const { result: first } = applyShaping(grid);
+    const { result: second } = applyShaping(first);
+    for (let r = 0; r < first.length; r++) {
+      expect(countActive(second[r])).toBe(countActive(first[r]));
+    }
+  });
+
+  it("biases padding to the side with shaping stitches", () => {
+    const grid = createGrid(2, 6);
+    placeStitch(grid, 0, 5, "k2tog", "#FFF"); // top row, right side, net -1
+    const { result } = applyShaping(grid);
+    const topRow = result[0];
+    expect(countActive(topRow)).toBe(5); // 6 + (-1) = 5
+    expect(topRow[topRow.length - 1].stitchId).toBe("none");
   });
 });

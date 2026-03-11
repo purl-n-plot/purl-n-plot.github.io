@@ -160,7 +160,9 @@ const PatternGrid = ({
 
     if (stats.length > 0) {
       const lastIdx = stats.length - 1;
-      stats[lastIdx].expectedCount = stats[lastIdx].activeCount + stats[lastIdx].netChange;
+      // Bottom row is baseline — always matches
+      stats[lastIdx].expectedCount = stats[lastIdx].activeCount;
+      stats[lastIdx].mismatch = false;
       for (let i = lastIdx - 1; i >= 0; i--) {
         stats[i].expectedCount = stats[i + 1].expectedCount + stats[i].netChange;
         stats[i].mismatch = stats[i].activeCount !== stats[i].expectedCount;
@@ -355,12 +357,12 @@ const PatternGrid = ({
                         color: mismatch
                           ? "hsl(var(--destructive))"
                           : hasShaping
-                            ? netChange > 0 ? "hsl(var(--chart-4))" : "hsl(var(--destructive))"
+                            ? "hsl(var(--chart-4))"
                             : "hsl(var(--foreground) / 0.5)",
                         backgroundColor: mismatch
                           ? "hsl(var(--destructive) / 0.15)"
                           : hasShaping
-                            ? netChange > 0 ? "hsl(var(--chart-4) / 0.15)" : "hsl(var(--destructive) / 0.15)"
+                            ? "hsl(var(--chart-4) / 0.15)"
                             : "transparent",
                       }}
                     >

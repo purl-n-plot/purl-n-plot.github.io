@@ -149,25 +149,31 @@ const Index = () => {
       const numRows = prev.length;
       if (numRows === 0) return prev;
 
-      // For each row: extract active cells (non-"none" standalone) in order,
-      // track net change, and count active grid cells used
+      // For each row: extract active cells, track net change and shaping position bias
       const rowInfo = prev.map((row) => {
-        // Collect contiguous groups: active stitch cells (including their span children)
         const activeCells: CellData[] = [];
-        // Map from old column index to index within activeCells
         const oldColToActive = new Map<number, number>();
         let netChange = 0;
         let colIdx = 0;
+        let leftShaping = 0;
+        let rightShaping = 0;
+        const mid = row.length / 2;
 
         while (colIdx < row.length) {
           const cell = row[colIdx];
-          // Skip span children — they'll be collected with their owner
           if (cell.spanOwner !== undefined && cell.spanOwner !== colIdx) {
             colIdx++;
             continue;
           }
           const span = Math.max(1, getStitchSpan(cell.stitchId));
-          netChange += getStitchNetChange(cell.stitchId);
+          const nc = getStitchNetChange(cell.stitchId);
+          netChange += nc;
+
+          // Track which side shaping stitches are on
+          if (nc !== 0) {
+            if (colIdx < mid) leftShaping += Math.abs(nc);
+            else rightShaping += Math.abs(nc);
+          }
 
           if (cell.stitchId !== "none") {
             for (let s = 0; s < span && colIdx + s < row.length; s++) {
@@ -177,13 +183,17 @@ const Index = () => {
           }
           colIdx += span;
         }
-        return { activeCells, oldColToActive, netChange, cellCount: activeCells.length };
+
+        const totalShaping = leftShaping + rightShaping;
+        // -1 = all shaping on left, 0 = centered, 1 = all on right
+        const shapingBias = totalShaping === 0 ? 0 : (rightShaping - leftShaping) / totalShaping;
+
+        return { activeCells, oldColToActive, netChange, cellCount: activeCells.length, shapingBias };
       });
 
-      // Calculate expected cell counts bottom-to-top
+      // Expected counts: bottom row is baseline (no adjustment), propagate upward
       const expectedCounts = new Array(numRows);
-      // Each row's expected count = its OUTPUT (after its own inc/dec)
-      expectedCounts[numRows - 1] = rowInfo[numRows - 1].cellCount + rowInfo[numRows - 1].netChange;
+      expectedCounts[numRows - 1] = rowInfo[numRows - 1].cellCount;
       let maxWidth = expectedCounts[numRows - 1];
 
       for (let i = numRows - 2; i >= 0; i--) {
@@ -191,27 +201,46 @@ const Index = () => {
         maxWidth = Math.max(maxWidth, expectedCounts[i]);
       }
 
+      // Idempotency: skip if all rows already match expected counts
+      let alreadyApplied = true;
+      for (let i = 0; i < numRows; i++) {
+        if (rowInfo[i].cellCount !== expectedCounts[i]) {
+          alreadyApplied = false;
+          break;
+        }
+      }
+      if (alreadyApplied) {
+        return prev;
+      }
+
       const currentCols = prev[0]?.length ?? 0;
       const totalCols = Math.max(currentCols, maxWidth);
-
       const noStitch = (): CellData => ({ color: DEFAULT_BG, stitchId: "none" });
 
-      // Rebuild each row: center active cells, fill missing expected stitches with knit,
-      // then pad edges with no-stitch to reach totalCols
+      // Calculate cumulative bias: propagate from rows with shaping upward
+      const biases = new Array(numRows).fill(0);
+      let lastBias = 0;
+      for (let i = numRows - 1; i >= 0; i--) {
+        if (rowInfo[i].netChange !== 0) {
+          lastBias = rowInfo[i].shapingBias;
+        }
+        biases[i] = lastBias;
+      }
+
+      // Rebuild each row with asymmetric padding/trimming
       const next = prev.map((row, rowIdx) => {
         const { activeCells, oldColToActive } = rowInfo[rowIdx];
         const expected = expectedCounts[rowIdx];
+        const bias = biases[rowIdx];
 
-        // Determine which active cells to use — trim if too many, fill if too few
         let usedCells = activeCells;
         let usedOldColToActive = oldColToActive;
         if (activeCells.length > expected) {
-          // Trim excess from edges symmetrically
           const excess = activeCells.length - expected;
-          const trimLeft = Math.floor(excess / 2);
-          const trimRight = excess - trimLeft;
-          usedCells = activeCells.slice(trimLeft, activeCells.length - trimRight);
-          // Rebuild oldColToActive mapping for the trimmed cells
+          // bias: -1 → trim from left, 1 → trim from right, 0 → centered
+          const trimRight = Math.round(excess * ((1 + bias) / 2));
+          const trimLeft = excess - trimRight;
+          usedCells = activeCells.slice(trimLeft, activeCells.length - trimRight || undefined);
           usedOldColToActive = new Map<number, number>();
           for (const [oldCol, activeIdx] of oldColToActive.entries()) {
             const newIdx = activeIdx - trimLeft;
@@ -222,14 +251,14 @@ const Index = () => {
         }
 
         const fillerCount = Math.max(0, expected - usedCells.length);
-        const fillerLeft = Math.floor(fillerCount / 2);
+        // bias: -1 → fill on left, 1 → fill on right
+        const fillerLeft = Math.round(fillerCount * ((1 - bias) / 2));
         const fillerRight = fillerCount - fillerLeft;
 
-        // Build the "content" cells: filler knits + active cells + filler knits
         const contentCells: CellData[] = [];
         for (let i = 0; i < fillerLeft; i++) contentCells.push({ color: DEFAULT_BG, stitchId: "knit" });
 
-        const activeOffset = fillerLeft; // where active cells start in contentCells
+        const activeOffset = fillerLeft;
         for (let i = 0; i < usedCells.length; i++) {
           const cell = { ...usedCells[i] };
           if (cell.spanOwner !== undefined) {
@@ -241,20 +270,17 @@ const Index = () => {
 
         for (let i = 0; i < fillerRight; i++) contentCells.push({ color: DEFAULT_BG, stitchId: "knit" });
 
-        // Now pad with no-stitch to reach totalCols
+        // Pad with no-stitch to reach totalCols, biased to the shaping side
         const noStitchPadding = totalCols - contentCells.length;
-        const padLeft = Math.floor(Math.max(0, noStitchPadding) / 2);
+        const padLeft = Math.round(Math.max(0, noStitchPadding) * ((1 - bias) / 2));
         const padRight = Math.max(0, noStitchPadding) - padLeft;
 
         const newRow: CellData[] = [];
         for (let i = 0; i < padLeft; i++) newRow.push(noStitch());
 
-        // Remap spanOwner by adding padLeft offset
         for (let i = 0; i < contentCells.length; i++) {
           const cell = { ...contentCells[i] };
-          if (cell.spanOwner !== undefined) {
-            cell.spanOwner += padLeft;
-          }
+          if (cell.spanOwner !== undefined) cell.spanOwner += padLeft;
           newRow.push(cell);
         }
 
@@ -269,7 +295,7 @@ const Index = () => {
 
       return next;
     });
-    toast({ title: "Shaping applied", description: "Rows adjusted with centered no-stitch placeholders." });
+    toast({ title: "Shaping applied", description: "Rows adjusted based on stitch shaping." });
   }, [setGrid, setCols]);
 
   const handleSelectStart = useCallback((row: number, col: number) => {
