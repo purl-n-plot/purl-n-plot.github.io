@@ -11,8 +11,8 @@ import {
   Undo2, Redo2, Copy, ClipboardPaste, BoxSelect,
   FlipHorizontal2, FlipVertical2, PaintBucket, Pencil,
   ZoomIn, ZoomOut,
-  MousePointer2, Eraser, Sun, Moon, Grid3X3, Wand2,
-} from "lucide-react";
+  MousePointer2, Eraser, Sun, Moon, Grid3X3, Wand2 } from
+"lucide-react";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { toast } from "@/hooks/use-toast";
@@ -32,7 +32,7 @@ function createEmptyCell(): CellData {
 
 function createGrid(rows: number, cols: number): CellData[][] {
   return Array.from({ length: rows }, () =>
-    Array.from({ length: cols }, () => createEmptyCell())
+  Array.from({ length: cols }, () => createEmptyCell())
   );
 }
 
@@ -52,12 +52,12 @@ function clearSpan(grid: CellData[][], row: number, col: number) {
 
 /** Place a stitch (possibly multi-cell) at a position */
 function placeStitch(
-  grid: CellData[][],
-  row: number,
-  col: number,
-  stitchId: string,
-  color: string
-): boolean {
+grid: CellData[][],
+row: number,
+col: number,
+stitchId: string,
+color: string)
+: boolean {
   const rowData = grid[row];
   if (!rowData || col < 0 || col >= rowData.length) return false;
 
@@ -94,7 +94,7 @@ const Index = () => {
   const [cols, setCols] = useState(DEFAULT_COLS);
   const {
     state: grid, set: setGrid, setSilent, beginBatch, commitBatch,
-    undo, redo, canUndo, canRedo,
+    undo, redo, canUndo, canRedo
   } = useHistory(createGrid(DEFAULT_ROWS, DEFAULT_COLS));
   const [selectedColor, setSelectedColor] = useState(YARN_COLORS[1].value);
   const [selectedStitch, setSelectedStitch] = useState("knit");
@@ -102,7 +102,7 @@ const Index = () => {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [clipboard, setClipboard] = useState<CellData[][] | null>(null);
-  const [cursorCell, setCursorCell] = useState<{ row: number; col: number } | null>(null);
+  const [cursorCell, setCursorCell] = useState<{row: number;col: number;} | null>(null);
   const [mirrorH, setMirrorH] = useState(false);
   const [mirrorV, setMirrorV] = useState(false);
   const [activeTool, setActiveTool] = useState<"paint" | "fill" | "select" | "eraser">("paint");
@@ -171,8 +171,8 @@ const Index = () => {
 
           // Track which side shaping stitches are on
           if (nc !== 0) {
-            if (colIdx < mid) leftShaping += Math.abs(nc);
-            else rightShaping += Math.abs(nc);
+            if (colIdx < mid) leftShaping += Math.abs(nc);else
+            rightShaping += Math.abs(nc);
           }
 
           if (cell.stitchId !== "none") {
@@ -344,6 +344,28 @@ const Index = () => {
     toast({ title: "Pasted", description: `${clipboard.length}×${clipboard[0].length} cells pasted` });
   }, [clipboard, cursorCell, setGrid]);
 
+  const fillSelection = useCallback(() => {
+    if (!selection) return;
+    const { minRow, maxRow, minCol, maxCol } = normalizeSelection(selection);
+    setGrid((prev) => {
+      const next = prev.map((r) => r.map((c) => ({ ...c })));
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          if (r < next.length && c < (next[0]?.length ?? 0)) {
+            // Clear any existing span
+            const cell = next[r][c];
+            if (cell.spanOwner !== undefined && cell.spanOwner !== c) {
+              clearSpan(next, r, cell.spanOwner);
+            }
+            placeStitch(next, r, c, selectedStitch, selectedColor);
+          }
+        }
+      }
+      return next;
+    });
+    toast({ title: "Selection filled", description: `Filled ${maxRow - minRow + 1}×${maxCol - minCol + 1} area` });
+  }, [selection, selectedColor, selectedStitch, setGrid]);
+
   const handleTile = useCallback(() => {
     if (!selection) return;
     const { minRow, maxRow, minCol, maxCol } = normalizeSelection(selection);
@@ -377,7 +399,7 @@ const Index = () => {
     setSelection(null);
     toast({
       title: "Tiled",
-      description: `${tileRows}×${tileCols} pattern repeated across ${rows}×${cols} grid`,
+      description: `${tileRows}×${tileCols} pattern repeated across ${rows}×${cols} grid`
     });
   }, [selection, grid, rows, cols, setGrid]);
 
@@ -412,17 +434,18 @@ const Index = () => {
         const target = e.target as HTMLElement;
         if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
         switch (e.key.toLowerCase()) {
-          case "b": setActiveTool("paint"); break;
-          case "e": setActiveTool("eraser"); break;
-          case "f": setActiveTool("fill"); break;
-          case "s": e.preventDefault(); setActiveTool("select"); break;
-          case "t": if (selection) handleTile(); break;
+          case "b":setActiveTool("paint");break;
+          case "e":setActiveTool("eraser");break;
+          case "f":setActiveTool("fill");break;
+          case "s":e.preventDefault();setActiveTool("select");break;
+          case "t":if (selection) handleTile();break;
+          case "g":if (selection) fillSelection();break;
         }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [undo, redo, selection, handleCopy, clipboard, cursorCell, handlePaste, handleTile]);
+  }, [undo, redo, selection, handleCopy, clipboard, cursorCell, handlePaste, handleTile, fillSelection]);
 
   const paintCell = useCallback(
     (row: number, col: number) => {
@@ -440,8 +463,8 @@ const Index = () => {
           const eraseOne = (r: number, c: number) => {
             if (r < 0 || r >= numRows || c < 0 || c >= numCols) return;
             const cell = next[r][c];
-            if (cell.spanOwner !== undefined) clearSpan(next, r, cell.spanOwner);
-            else clearSpan(next, r, c);
+            if (cell.spanOwner !== undefined) clearSpan(next, r, cell.spanOwner);else
+            clearSpan(next, r, c);
           };
           eraseOne(row, col);
           if (mirrorH) eraseOne(row, numCols - 1 - col);
@@ -513,8 +536,8 @@ const Index = () => {
         const eraseOne = (r: number, c: number) => {
           if (r < 0 || r >= numRows || c < 0 || c >= numCols) return;
           const cell = next[r][c];
-          if (cell.spanOwner !== undefined) clearSpan(next, r, cell.spanOwner);
-          else clearSpan(next, r, c);
+          if (cell.spanOwner !== undefined) clearSpan(next, r, cell.spanOwner);else
+          clearSpan(next, r, c);
         };
         eraseOne(row, col);
         if (mirrorH) eraseOne(row, numCols - 1 - col);
@@ -554,15 +577,15 @@ const Index = () => {
     (newCols: number) => {
       setCols(newCols);
       setGrid((prev) =>
-        prev.map((row) => {
-          if (newCols > row.length) {
-            return [
-              ...row,
-              ...Array.from({ length: newCols - row.length }, () => createEmptyCell()),
-            ];
-          }
-          return row.slice(0, newCols);
-        })
+      prev.map((row) => {
+        if (newCols > row.length) {
+          return [
+          ...row,
+          ...Array.from({ length: newCols - row.length }, () => createEmptyCell())];
+
+        }
+        return row.slice(0, newCols);
+      })
       );
     },
     [setGrid]
@@ -587,7 +610,7 @@ const Index = () => {
     [setGrid]
   );
 
-  const stitchCount = grid.flat().filter((c) => c && (c.color !== DEFAULT_BG || (c.stitchId !== "none" && c.spanOwner === undefined))).length;
+  const stitchCount = grid.flat().filter((c) => c && (c.color !== DEFAULT_BG || c.stitchId !== "none" && c.spanOwner === undefined)).length;
 
   const handleExport = useCallback(() => {
     const scale = 80;
@@ -636,14 +659,14 @@ const Index = () => {
 
     // Draw all cell backgrounds and grid lines
     grid.forEach((row, ri) =>
-      row.forEach((cell, ci) => {
-        const isNoStitch = cell.stitchId === "none";
-        ctx.fillStyle = isNoStitch ? "#C8C4BE" : cell.color;
-        ctx.fillRect(offsetX + ci * scale, offsetY + ri * scale, scale, scale);
-        ctx.strokeStyle = "#D0D0D0";
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(offsetX + ci * scale, offsetY + ri * scale, scale, scale);
-      })
+    row.forEach((cell, ci) => {
+      const isNoStitch = cell.stitchId === "none";
+      ctx.fillStyle = isNoStitch ? "#C8C4BE" : cell.color;
+      ctx.fillRect(offsetX + ci * scale, offsetY + ri * scale, scale, scale);
+      ctx.strokeStyle = "#D0D0D0";
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(offsetX + ci * scale, offsetY + ri * scale, scale, scale);
+    })
     );
 
     // Grid border
@@ -661,7 +684,7 @@ const Index = () => {
           continue;
         }
         const isNoStitch = cell.stitchId === "none";
-        if (isNoStitch || (cell.stitchId !== "none" && cell.stitchId !== "knit")) {
+        if (isNoStitch || cell.stitchId !== "none" && cell.stitchId !== "knit") {
           const span = getStitchSpan(cell.stitchId);
           const totalWidth = Math.min(span, row.length - ci) * scale;
           const bgColor = isNoStitch ? "#C8C4BE" : cell.color;
@@ -742,14 +765,14 @@ const Index = () => {
     for (let r = 0; r < rows; r++) ctx.fillText(String(rows - r), oX + gridW + 4, oY + r * scale + scale / 2);
 
     grid.forEach((row, ri) =>
-      row.forEach((cell, ci) => {
-        const isNo = cell.stitchId === "none";
-        ctx.fillStyle = isNo ? "#C8C4BE" : cell.color;
-        ctx.fillRect(oX + ci * scale, oY + ri * scale, scale, scale);
-        ctx.strokeStyle = "#D0D0D0";
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(oX + ci * scale, oY + ri * scale, scale, scale);
-      })
+    row.forEach((cell, ci) => {
+      const isNo = cell.stitchId === "none";
+      ctx.fillStyle = isNo ? "#C8C4BE" : cell.color;
+      ctx.fillRect(oX + ci * scale, oY + ri * scale, scale, scale);
+      ctx.strokeStyle = "#D0D0D0";
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(oX + ci * scale, oY + ri * scale, scale, scale);
+    })
     );
     ctx.strokeStyle = "#999";
     ctx.lineWidth = 1.5;
@@ -759,9 +782,9 @@ const Index = () => {
       let ci = 0;
       while (ci < row.length) {
         const cell = row[ci];
-        if (cell.spanOwner !== undefined && cell.spanOwner !== ci) { ci++; continue; }
+        if (cell.spanOwner !== undefined && cell.spanOwner !== ci) {ci++;continue;}
         const isNo = cell.stitchId === "none";
-        if (isNo || (cell.stitchId !== "none" && cell.stitchId !== "knit")) {
+        if (isNo || cell.stitchId !== "none" && cell.stitchId !== "knit") {
           const span = getStitchSpan(cell.stitchId);
           const tw = Math.min(span, row.length - ci) * scale;
           const bg = isNo ? "#C8C4BE" : cell.color;
@@ -798,9 +821,9 @@ const Index = () => {
 
     // Title
     pdf.setFontSize(18);
-    const title = patternName.trim()
-      ? `${patternName.trim()} — Purl & Plot`
-      : "Purl & Plot — Knitting Chart";
+    const title = patternName.trim() ?
+    `${patternName.trim()} — Purl & Plot` :
+    "Purl & Plot — Knitting Chart";
     pdf.text(title, pdfMargin, pdfMargin);
 
     // Chart image
@@ -831,7 +854,7 @@ const Index = () => {
       legendY += 18;
       pdf.setFontSize(10);
       usedStitches.forEach((s) => {
-        if (legendY + 14 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+        if (legendY + 14 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
         pdf.text(`${s.symbol}  ${s.name} — ${s.description}`, pdfMargin + 10, legendY);
         legendY += 14;
       });
@@ -839,12 +862,12 @@ const Index = () => {
     }
 
     if (usedColors.length > 0) {
-      if (legendY + 40 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+      if (legendY + 40 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
       pdf.setFontSize(13);
       pdf.text("Color Key", pdfMargin, legendY);
       legendY += 18;
       usedColors.forEach((color) => {
-        if (legendY + 16 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+        if (legendY + 16 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
         pdf.setFillColor(parseInt(color.slice(1, 3), 16), parseInt(color.slice(3, 5), 16), parseInt(color.slice(5, 7), 16));
         pdf.rect(pdfMargin + 10, legendY - 8, 12, 12, "F");
         pdf.setDrawColor(180);
@@ -859,17 +882,17 @@ const Index = () => {
 
     // Pattern notes
     const noteFields: [string, string][] = [
-      ["Yarn Weight", patternNotes.yarnWeight],
-      ["Yarn Brand", patternNotes.yarnBrand],
-      ["Colorway", patternNotes.colorway],
-      ["Needle Size", patternNotes.needleSize],
-      ["Gauge", patternNotes.gauge],
-      ["Finished Size", patternNotes.finishedSize],
-    ].filter(([, v]) => v.trim() !== "") as [string, string][];
+    ["Yarn Weight", patternNotes.yarnWeight],
+    ["Yarn Brand", patternNotes.yarnBrand],
+    ["Colorway", patternNotes.colorway],
+    ["Needle Size", patternNotes.needleSize],
+    ["Gauge", patternNotes.gauge],
+    ["Finished Size", patternNotes.finishedSize]].
+    filter(([, v]) => v.trim() !== "") as [string, string][];
 
     const hasAnyNotes = noteFields.length > 0 || patternNotes.notes.trim() !== "";
     if (hasAnyNotes) {
-      if (legendY + 60 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+      if (legendY + 60 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
       legendY += 10;
       pdf.setFontSize(13);
       pdf.setTextColor(40);
@@ -877,7 +900,7 @@ const Index = () => {
       legendY += 18;
       pdf.setFontSize(10);
       noteFields.forEach(([label, value]) => {
-        if (legendY + 14 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+        if (legendY + 14 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
         pdf.text(`${label}: ${value}`, pdfMargin + 10, legendY);
         legendY += 14;
       });
@@ -885,7 +908,7 @@ const Index = () => {
         legendY += 4;
         const noteLines = pdf.splitTextToSize(patternNotes.notes, maxW - 20);
         noteLines.forEach((line: string) => {
-          if (legendY + 14 > pageH - pdfMargin) { pdf.addPage(); legendY = pdfMargin; }
+          if (legendY + 14 > pageH - pdfMargin) {pdf.addPage();legendY = pdfMargin;}
           pdf.text(line, pdfMargin + 10, legendY);
           legendY += 14;
         });
@@ -896,7 +919,8 @@ const Index = () => {
     toast({ title: "PDF exported", description: "Chart with legend and notes saved as PDF." });
   }, [grid, rows, cols, patternNotes, patternName, guidelines]);
 
-  const baseCellSize = Math.min(40, Math.floor(1200 / Math.max(rows, cols)));
+  const targetGridWidth = typeof window !== "undefined" ? Math.max(800, Math.floor(window.innerWidth - 360)) : 1200;
+  const baseCellSize = Math.min(40, Math.floor(targetGridWidth / Math.max(rows, cols)));
   const cellSize = Math.round(baseCellSize * zoom);
 
   return (
@@ -921,8 +945,8 @@ const Index = () => {
             onPatternNotesChange={setPatternNotes}
             patternName={patternName}
             onPatternNameChange={setPatternName}
-            guidelines={guidelines}
-          />
+            guidelines={guidelines} />
+          
 
           <div className="flex-1 flex flex-col min-w-0">
             <header className="h-14 border-b border-border bg-card flex items-center justify-between px-4 shrink-0">
@@ -940,8 +964,8 @@ const Index = () => {
                         variant={activeTool === "paint" ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setActiveTool("paint")}
-                      >
+                        onClick={() => setActiveTool("paint")}>
+                        
                         <Pencil size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -953,8 +977,8 @@ const Index = () => {
                         variant={activeTool === "fill" ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setActiveTool("fill")}
-                      >
+                        onClick={() => setActiveTool("fill")}>
+                        
                         <PaintBucket size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -966,8 +990,8 @@ const Index = () => {
                         variant={activeTool === "eraser" ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setActiveTool("eraser")}
-                      >
+                        onClick={() => setActiveTool("eraser")}>
+                        
                         <Eraser size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -979,8 +1003,8 @@ const Index = () => {
                         variant={activeTool === "select" ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setActiveTool("select")}
-                      >
+                        onClick={() => setActiveTool("select")}>
+                        
                         <MousePointer2 size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -996,8 +1020,8 @@ const Index = () => {
                         variant={mirrorH ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setMirrorH(!mirrorH)}
-                      >
+                        onClick={() => setMirrorH(!mirrorH)}>
+                        
                         <FlipHorizontal2 size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -1009,8 +1033,8 @@ const Index = () => {
                         variant={mirrorV ? "default" : "ghost"}
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => setMirrorV(!mirrorV)}
-                      >
+                        onClick={() => setMirrorV(!mirrorV)}>
+                        
                         <FlipVertical2 size={15} />
                       </Button>
                     </TooltipTrigger>
@@ -1064,6 +1088,14 @@ const Index = () => {
                     </TooltipTrigger>
                     <TooltipContent>{t("tools.tile")}</TooltipContent>
                   </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={fillSelection} disabled={!selection}>
+                        <PaintBucket size={15} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Fill selection (G)</TooltipContent>
+                  </Tooltip>
                 </div>
                 <div className="w-px h-5 bg-border hidden sm:block" />
                 {/* Apply Shaping */}
@@ -1108,19 +1140,19 @@ const Index = () => {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                    >
+                      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+                      
                       {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>{theme === "dark" ? t("tools.lightMode") : t("tools.darkMode")}</TooltipContent>
                 </Tooltip>
-                {selection && (
-                  <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[11px] font-semibold">
+                {selection &&
+                <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-[11px] font-semibold">
                     <BoxSelect size={10} className="inline mr-0.5" />
                     {Math.abs(selection.endRow - selection.startRow) + 1}×{Math.abs(selection.endCol - selection.startCol) + 1}
                   </span>
-                )}
+                }
                 <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
                   {rows}×{cols}
                 </span>
@@ -1129,8 +1161,8 @@ const Index = () => {
             </header>
 
             <WelcomeDialog />
-            <main className="flex-1 flex items-center justify-center p-6 overflow-auto">
-              <div className="rounded-xl border border-border bg-card p-6 shadow-sm overflow-auto max-w-full max-h-full">
+            <main className="flex-1 overflow-auto p-1 min-h-0 flex items-start justify-center">
+              <div className="rounded-xl border border-border bg-card p-2 shadow-sm w-fit my-[10px]">
                 <PatternGrid
                   grid={grid}
                   onCellClick={paintCell}
@@ -1148,15 +1180,15 @@ const Index = () => {
                   onCursorChange={setCursorCell}
                   activeTool={activeTool}
                   guidelines={guidelines}
-                  onGuidelinesChange={setGuidelines}
-                />
+                  onGuidelinesChange={setGuidelines} />
+                
               </div>
             </main>
           </div>
         </div>
       </TooltipProvider>
-    </SidebarProvider>
-  );
+    </SidebarProvider>);
+
 };
 
 export default Index;

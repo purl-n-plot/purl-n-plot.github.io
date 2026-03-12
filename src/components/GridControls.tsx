@@ -12,7 +12,7 @@ interface GridControlsProps {
   onClear: () => void;
 }
 
-const clampGrid = (val: number) => Math.max(4, Math.min(60, val));
+const clampGrid = (val: number) => Math.max(4, Math.min(200, val));
 
 const NumberStepper = ({
   label,
@@ -55,7 +55,7 @@ const NumberStepper = ({
           className="w-12 h-7 text-center text-sm font-medium p-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           type="number"
           min={4}
-          max={60}
+          max={200}
           value={draft}
           onFocus={() => setEditing(true)}
           onChange={(e) => {
